@@ -1,0 +1,22 @@
+# Git
+.git
+.gitignore
+
+# Python env
+venv/
+__pycache__/
+*.pyc
+
+# DVC
+.dvc/
+.dvc/cache/
+
+# MLflow
+mlruns/
+mlflow.db
+
+# Models cache (optional, but pipeline handles)
+models/
+
+# OS
+.DS_Store
