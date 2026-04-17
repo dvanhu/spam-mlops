@@ -1,0 +1,22 @@
+schema: '2.0'
+stages:
+  train:
+    cmd: python src/train.py
+    deps:
+    - path: data/spam.csv
+      hash: md5
+      md5: 51c5cefdb459cab16357730083034242
+      size: 264
+    - path: src/train.py
+      hash: md5
+      md5: 1c9a4f238b8ca992a263b609a492ab17
+      size: 1968
+    outs:
+    - path: models/model.pkl
+      hash: md5
+      md5: 5a8e19aa4efab125097d4f56532c4981
+      size: 1751
+    - path: models/vectorizer.pkl
+      hash: md5
+      md5: 660619290572539c27c0aa23d8948e93
+      size: 750

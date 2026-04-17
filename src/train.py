@@ -1,81 +1,86 @@
+import os
 import pandas as pd
-import pickle
-import mlflow
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LogisticRegression
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.naive_bayes import MultinomialNB
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+
+import mlflow
+import mlflow.sklearn
+import joblib
 
 
 # -----------------------------
-# 1. Load Data
+# MLflow Configuration
 # -----------------------------
-df = pd.read_csv(
-    "data/raw/spam.tsv",
-    sep="\t",
-    names=["label", "text"]
-)
+mlflow.set_tracking_uri("file:./mlruns")
+mlflow.set_experiment("spam-classifier")
 
+
+# -----------------------------
+# Load Data
+# -----------------------------
+DATA_PATH = "data/spam.csv"
+
+if not os.path.exists(DATA_PATH):
+    raise FileNotFoundError(f"Dataset not found at {DATA_PATH}")
+
+df = pd.read_csv(DATA_PATH)
+
+if "text" not in df.columns or "label" not in df.columns:
+    raise ValueError("Dataset must contain 'text' and 'label' columns")
+
+
+# -----------------------------
+# Preprocessing
+# -----------------------------
 X = df["text"]
 y = df["label"]
 
+vectorizer = CountVectorizer()
+X_vec = vectorizer.fit_transform(X)
+
 
 # -----------------------------
-# 2. Train/Test Split
+# Train/Test Split
 # -----------------------------
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
+    X_vec, y, test_size=0.2, random_state=42
 )
 
 
 # -----------------------------
-# 3. Feature Engineering (TF-IDF)
+# Model Training + MLflow
 # -----------------------------
-vectorizer = TfidfVectorizer(
-    stop_words="english",
-    ngram_range=(1, 2),
-    max_features=5000
-)
+model = MultinomialNB()
 
-X_train_vec = vectorizer.fit_transform(X_train)
-X_test_vec = vectorizer.transform(X_test)
-
-
-# -----------------------------
-# 4. Model Training
-# -----------------------------
-model = LogisticRegression(class_weight="balanced", max_iter=200)
-model.fit(X_train_vec, y_train)
-
-
-# -----------------------------
-# 5. Evaluation
-# -----------------------------
-y_pred = model.predict(X_test_vec)
-acc = accuracy_score(y_test, y_pred)
-
-
-# -----------------------------
-# 6. Save Artifacts
-# -----------------------------
-pickle.dump(model, open("models/model.pkl", "wb"))
-pickle.dump(vectorizer, open("models/vectorizer.pkl", "wb"))
-
-
-# -----------------------------
-# 7. MLflow Tracking
-# -----------------------------
 with mlflow.start_run():
-    mlflow.log_param("model", "logistic_regression")
-    mlflow.log_param("vectorizer", "tfidf")
-    mlflow.log_param("ngram_range", "(1,2)")
-    mlflow.log_metric("accuracy", acc)
 
+    # Train
+    model.fit(X_train, y_train)
+
+    # Evaluate
+    accuracy = model.score(X_test, y_test)
+
+    # Log parameters
+    mlflow.log_param("model", "MultinomialNB")
+    mlflow.log_param("vectorizer", "CountVectorizer")
+
+    # Log metrics
+    mlflow.log_metric("accuracy", accuracy)
+
+    # Log model artifact
     mlflow.sklearn.log_model(model, "model")
 
+    print(f"Training complete. Accuracy: {accuracy:.4f}")
+
 
 # -----------------------------
-# 8. Output
+# Save Model Locally
 # -----------------------------
-print(f"Accuracy: {acc}")
+os.makedirs("models", exist_ok=True)
+
+joblib.dump(model, "models/model.pkl")
+joblib.dump(vectorizer, "models/vectorizer.pkl")
+
+print("Model and vectorizer saved in /models/")
