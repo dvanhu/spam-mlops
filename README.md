@@ -1,5 +1,14 @@
 # spam-mlops
 
+![CI/CD](https://github.com/dvanhu/spam-mlops/actions/workflows/ci.yml/badge.svg)
+![Docker Hub](https://img.shields.io/docker/pulls/dvanhu/spam-mlops?logo=docker&label=Docker%20Pulls)
+![Docker Image Size](https://img.shields.io/docker/image-size/dvanhu/spam-mlops/latest?logo=docker)
+![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-009688?logo=fastapi&logoColor=white)
+![DVC](https://img.shields.io/badge/DVC-tracked-945DD6?logo=dvc&logoColor=white)
+![MLflow](https://img.shields.io/badge/MLflow-tracked-0194E2?logo=mlflow&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
+
 A production-grade machine learning pipeline for email spam classification. This project demonstrates an end-to-end MLOps workflow, covering data versioning, experiment tracking, model training, API serving, containerization, and automated CI/CD — built with industry-standard tooling and designed for reproducibility.
 
 ---
@@ -31,21 +40,24 @@ The classifier is exposed as a REST API via FastAPI and packaged as a Docker ima
 The system follows a linear MLOps flow from raw data to deployed API:
 
 ```
-Raw Data (DVC-tracked)
+Raw Data — spam.csv (DVC-tracked)
         │
         ▼
   DVC Pipeline (dvc.yaml)
   ┌─────────────────────┐
-  │  1. Preprocessing   │  ← CountVectorizer fit on training set
-  │  2. Training        │  ← MultinomialNB trained and serialized
-  │  3. Evaluation      │  ← Metrics logged to MLflow
+  │  Training Stage     │  ← CountVectorizer + MultinomialNB fit and serialized
   └─────────────────────┘
         │
         ▼
-  Model Artifact (models/)
+  Model Artifacts
+  ├── models/model.pkl
+  └── models/vectorizer.pkl
         │
         ▼
   FastAPI Inference API (api/)
+  ├── app.py        ← Route definitions and model loading
+  ├── schema.py     ← Pydantic request/response models
+  └── utils.py      ← Preprocessing and prediction helpers
         │
         ▼
   Docker Image
@@ -54,15 +66,15 @@ Raw Data (DVC-tracked)
   GitHub Actions CI/CD → Docker Hub
 ```
 
-**Data layer:** Raw datasets are tracked by DVC and excluded from Git. Only the `dvc.lock` file (a cryptographic snapshot of pipeline state) is committed, ensuring any collaborator can reproduce the exact dataset and model by running `dvc pull`.
+**Data layer:** The raw dataset (`spam.csv`) is tracked by DVC and excluded from Git. Only the `.dvc` pointer file and `dvc.lock` snapshot are committed, ensuring any collaborator can reproduce the exact dataset by running `dvc pull`.
 
-**Training layer:** The DVC pipeline (`dvc.yaml`) defines the stages: preprocessing, training, and evaluation. Running `dvc repro` executes only the stages whose dependencies have changed, making the pipeline incremental and efficient.
+**Training layer:** The DVC pipeline (`dvc.yaml`) defines the training stage with explicit input/output dependencies. Running `dvc repro` executes only the stages whose dependencies have changed, making the pipeline incremental and auditable.
 
-**Experiment tracking:** MLflow records parameters, metrics, and artifact paths for every training run. This provides a persistent audit trail and enables comparison across experiments without manually managing log files.
+**Artifact layer:** Training produces two serialized artifacts — `model.pkl` (the fitted classifier) and `vectorizer.pkl` (the fitted CountVectorizer). Separating these allows the vectorizer to be reused independently during inference without re-fitting.
 
-**Serving layer:** The trained model artifact is loaded at startup by the FastAPI application, which exposes a `/predict` endpoint accepting text input and returning a spam/ham classification with confidence.
+**Serving layer:** The FastAPI application loads both artifacts at startup. Inference logic is isolated in `utils.py`, keeping route definitions in `app.py` clean. Input/output contracts are enforced via Pydantic schemas in `schema.py`.
 
-**Deployment layer:** A `Dockerfile` packages the API and all runtime dependencies into a portable image. GitHub Actions builds this image on every push to `main` and pushes it to Docker Hub, keeping the registry image current without manual intervention.
+**Deployment layer:** A `Dockerfile` packages the API and all runtime dependencies into a portable image. GitHub Actions builds and pushes this image to Docker Hub on every push to `main`.
 
 ---
 
@@ -71,13 +83,13 @@ Raw Data (DVC-tracked)
 | Tool | Role | Why |
 |---|---|---|
 | **Python 3.12** | Runtime | Latest stable release; improved performance and typing support |
-| **Scikit-learn** | ML model | Battle-tested NLP primitives; CountVectorizer + MultinomialNB is a strong baseline for text classification |
-| **FastAPI** | API serving | Async-native, automatically generates OpenAPI docs, and has low latency overhead compared to Flask |
-| **DVC** | Data & pipeline versioning | Separates large binary artifacts from Git history; enables reproducible pipeline execution with stage caching |
-| **MLflow** | Experiment tracking | Provides a structured store for run parameters, metrics, and artifacts; integrates with the model registry for promotion workflows |
+| **Scikit-learn** | ML model | Battle-tested NLP primitives; CountVectorizer + MultinomialNB is a strong, interpretable baseline for text classification |
+| **FastAPI** | API serving | Async-native, low-overhead, and automatically generates OpenAPI documentation |
+| **DVC** | Data & pipeline versioning | Separates large binary artifacts from Git history; enables reproducible pipeline execution with stage-level caching |
+| **MLflow** | Experiment tracking | Provides a structured store for run parameters, metrics, and artifacts across training iterations |
 | **Docker** | Containerization | Eliminates environment drift between development and production; produces a self-contained, portable runtime |
-| **GitHub Actions** | CI/CD | Native to GitHub; no external CI server required; tightly integrated with the repository event model |
-| **Docker Hub** | Image registry | Widely supported pull target for deployment environments; free tier sufficient for open-source projects |
+| **GitHub Actions** | CI/CD | Native to GitHub; no external CI server required; triggers directly on repository events |
+| **Docker Hub** | Image registry | Widely supported pull target; accessible to downstream deployment environments without additional infrastructure |
 
 ---
 
@@ -85,28 +97,36 @@ Raw Data (DVC-tracked)
 
 ```
 spam-mlops/
-├── api/
-│   ├── main.py              # FastAPI application and route definitions
-│   └── schemas.py           # Pydantic request/response models
-├── src/
-│   ├── preprocess.py        # Text cleaning and feature extraction
-│   ├── train.py             # Model training and artifact serialization
-│   └── evaluate.py          # Metric computation and MLflow logging
-├── data/
-│   └── .gitignore           # Raw data excluded from Git; managed by DVC
-├── models/
-│   └── .gitignore           # Serialized model artifacts; populated by DVC or training run
+├── .dvc/
+│   ├── .gitignore
+│   └── config                   # DVC remote configuration
 ├── .github/
 │   └── workflows/
-│       └── ci.yml           # GitHub Actions CI/CD pipeline definition
-├── dvc.yaml                 # Pipeline stage definitions and dependency graph
-├── dvc.lock                 # Cryptographic snapshot of pipeline state (committed to Git)
-├── Dockerfile               # Multi-stage image build for the FastAPI application
-├── requirements.txt         # Python dependencies
-└── README.md
+│       └── ci.yml               # GitHub Actions CI/CD pipeline
+├── api/
+│   ├── app.py                   # FastAPI application, route definitions, model loading
+│   ├── schema.py                # Pydantic request/response models
+│   └── utils.py                 # Text preprocessing and prediction logic
+├── data/
+│   ├── .gitignore               # Excludes raw CSV from Git
+│   └── spam.csv.dvc             # DVC pointer to the tracked dataset
+├── models/
+│   ├── .gitignore               # Excludes serialized artifacts from Git
+│   ├── model.pkl                # Trained MultinomialNB classifier
+│   └── vectorizer.pkl           # Fitted CountVectorizer
+├── src/
+│   └── train.py                 # Training script: fits pipeline, serializes artifacts, logs to MLflow
+├── .dockerignore
+├── .dvcignore
+├── .gitignore
+├── Dockerfile                   # Container image definition for the FastAPI application
+├── dvc.lock                     # Cryptographic snapshot of pipeline state (committed to Git)
+├── dvc.yaml                     # Pipeline stage definitions and dependency graph
+├── requirements.txt
+└── trigger.txt                  # Used to force CI pipeline re-runs without code changes
 ```
 
-> `data/` and `models/` directories contain `.gitignore` files that exclude binary content from version control. Their contents are managed entirely by DVC.
+> `data/` and `models/` are excluded from Git via `.gitignore`. Their contents are managed entirely by DVC. The `models/` directory contains artifacts that are either pulled via `dvc pull` or generated by running `dvc repro`.
 
 ---
 
@@ -117,7 +137,6 @@ spam-mlops/
 - Python 3.12
 - Docker (for containerized runs)
 - DVC (`pip install dvc`)
-- A configured DVC remote (local or cloud) if pulling data from scratch
 
 ### 1. Clone the repository
 
@@ -143,32 +162,20 @@ pip install -r requirements.txt
 ### 4. Pull data and reproduce the pipeline
 
 ```bash
-dvc pull          # Fetch tracked data and cached artifacts from the DVC remote
-dvc repro         # Re-run any pipeline stages whose inputs have changed
+dvc pull        # Fetch tracked data and cached artifacts from the configured DVC remote
+dvc repro       # Re-run any pipeline stages whose inputs have changed
 ```
 
-If no remote is configured, training data must be placed manually in `data/` and the pipeline run with:
-
-```bash
-dvc repro --no-cache
-```
-
-### 5. Start the MLflow tracking server (optional)
-
-```bash
-mlflow ui
-```
-
-Navigate to `http://localhost:5000` to view logged experiments and metrics.
+After `dvc repro` completes, `models/model.pkl` and `models/vectorizer.pkl` will be present and ready for serving.
 
 ---
 
 ## Running the API Locally
 
-After completing setup and ensuring the model artifact exists in `models/`:
+With the model artifacts in place, start the development server:
 
 ```bash
-uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 The API will be available at `http://localhost:8000`.
@@ -223,7 +230,7 @@ docker pull dvanhu/spam-mlops:latest
 docker run -p 8000:8000 dvanhu/spam-mlops:latest
 ```
 
-> The Docker Hub image is updated automatically by the CI/CD pipeline on every merge to `main`.
+> The Docker Hub image is updated automatically by the CI/CD pipeline on every push to `main`.
 
 ---
 
@@ -237,16 +244,10 @@ The pipeline is defined in `.github/workflows/ci.yml` and triggers on every push
 Push to main
      │
      ▼
-Checkout code
+Checkout repository
      │
      ▼
-Set up Python 3.12
-     │
-     ▼
-Install dependencies
-     │
-     ▼
-Run tests (if present)
+Set up Python 3.12 + install dependencies
      │
      ▼
 Docker build
@@ -259,43 +260,39 @@ Push image: dvanhu/spam-mlops:latest
             dvanhu/spam-mlops:<git-sha>
 ```
 
-### Secrets required
+Both `latest` and commit-SHA tags are pushed. This allows deployment environments to either track the most recent image or pin to a specific, immutable build.
 
-The following secrets must be set in the repository's **Settings → Secrets and variables → Actions**:
+### Required repository secrets
+
+Configure these under **Settings → Secrets and variables → Actions**:
 
 | Secret | Description |
 |---|---|
 | `DOCKERHUB_USERNAME` | Docker Hub account username |
-| `DOCKERHUB_TOKEN` | Docker Hub access token (not account password) |
+| `DOCKERHUB_TOKEN` | Docker Hub access token (not the account password) |
 
-Both `latest` and commit-SHA tags are pushed, allowing deployment environments to pin to a specific build or always track the most recent image.
+> `trigger.txt` provides a lightweight mechanism to force a CI run — edit and push the file when a rebuild is needed without any code changes (e.g., to pick up a base image update).
 
 ---
 
 ## Future Improvements
 
-The current implementation represents a functional baseline. The following enhancements would move it closer to a fully production-ready system:
+The current implementation represents a functional, deployable baseline. The following enhancements would move it closer to a fully production-ready system:
 
 **DVC remote storage**
-Configure a cloud-backed DVC remote (S3, GCS, or Azure Blob) so that datasets and model artifacts can be shared across environments and CI runners without manual file transfers.
+Migrate the DVC remote to a cloud backend (S3, GCS, or Azure Blob) so that datasets and model artifacts can be shared across environments and pulled directly by CI runners without manual transfer.
 
 **MLflow Model Registry**
-Integrate the MLflow Model Registry to formalize the promotion workflow from `Staging` to `Production`. This enables gated deployments where only validated model versions are served.
+Integrate the MLflow Model Registry to formalize the model promotion workflow from `Staging` to `Production`. This enables gated deployments where only validated model versions are served, with a full audit trail of who promoted what and when.
 
-**Automated model evaluation gate in CI**
-Extend the GitHub Actions pipeline to run `dvc repro` and evaluate the model against a held-out test set. Fail the build if accuracy or F1 falls below a defined threshold, preventing regressions from being deployed.
+**Automated evaluation gate in CI**
+Extend the GitHub Actions pipeline to run `dvc repro` and evaluate the model against a held-out test set as part of the build. Fail the pipeline if accuracy or F1 drops below a defined threshold, preventing regressions from reaching Docker Hub.
 
 **Kubernetes deployment**
 Replace direct `docker run` usage with a Kubernetes deployment manifest. This enables horizontal scaling, rolling updates, and liveness/readiness probes for the inference API.
 
 **Input drift monitoring**
-Integrate a tool such as Evidently or WhyLogs to monitor incoming prediction requests for distribution shift relative to the training data. Trigger retraining pipelines automatically when drift exceeds a configured threshold.
+Integrate a tool such as Evidently or WhyLogs to monitor incoming prediction requests for distribution shift relative to the training corpus. Surface alerts or trigger automated retraining when drift exceeds a configured threshold.
 
 **API authentication**
-Add API key or OAuth2 authentication to the FastAPI application to restrict access in non-development environments.
-
----
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+Add API key or OAuth2 authentication to the FastAPI application to restrict access in non-development deployments.
