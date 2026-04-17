@@ -1,19 +1,19 @@
-# MLflow
-mlruns/
-mlflow.db
-
-# DVC cache
-.dvc/cache/
-
 # Python
 __pycache__/
 *.pyc
 
-# Virtual env
-venv/
+# Data
+data/raw/
 
-# Models (handled by DVC)
+# MLflow
+mlruns/
+mlflow.db
+
+# DVC
+.dvc/cache/
+
+# Models
 models/
 
-# OS
-.DS_Store
+# Env
+venv/
